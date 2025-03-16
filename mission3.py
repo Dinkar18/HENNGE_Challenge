@@ -1,46 +1,61 @@
+import requests
 import hmac
 import hashlib
-import struct
 import time
-import base64
-import requests
+import struct
 import json
+from requests.auth import HTTPBasicAuth
 
-# Configuration
-EMAIL = "aryadinkar027@gmail.com"  
-GIST_URL = "https://gist.github.com/Dinkar18/d01a634e74ca35a5d015c5fb7f693327#file-mission3-py"  
-SECRET_KEY = EMAIL + "HENNGECHALLENGE003"
-API_URL = "https://api.challenge.hennge.com/challenges/003"
+# Replace with your email
+USERID = "aryadinkar027@gmail.com"
 
-def generate_totp(secret, time_step=30, digits=10):
-    """Generate a 10-digit TOTP using HMAC-SHA-512."""
-    counter = int(time.time() // time_step)
-    msg = struct.pack(">Q", counter)
-    hmac_digest = hmac.new(secret.encode(), msg, hashlib.sha512).digest()
-    offset = hmac_digest[-1] & 0x0F
-    binary_code = struct.unpack(">I", hmac_digest[offset:offset + 4])[0] & 0x7FFFFFFF
-    return str(binary_code)[-digits:]
+# API Endpoint
+ROOT = "https://api.challenge.hennge.com/challenges/003"
 
-def send_request():
-    """Prepare JSON payload, generate TOTP, and send the API request."""
-    totp_password = generate_totp(SECRET_KEY)
-    auth_header = base64.b64encode(f"{EMAIL}:{totp_password}".encode()).decode()
+# Constants for TOTP
+SECRET_SUFFIX = "HENNGECHALLENGE003"
+SHARED_SECRET = USERID + SECRET_SUFFIX
+TIMESTEP = 30
+T0 = 0
+DIGITS = 10
 
-    payload = {
-        "github_url": GIST_URL,
-        "contact_email": EMAIL,
-        "solution_language": "python"
-    }
+# Replace with your actual GitHub Gist URL
+GITHUB_GIST_URL = "https://gist.github.com/YOUR_ACCOUNT/GIST_ID"
 
-    headers = {
-        "Authorization": f"Basic {auth_header}",
-        "Content-Type": "application/json",
-        "Accept": "*/*"
-    }
+# Data payload for submission
+data = {
+    "github_url": GITHUB_GIST_URL,
+    "contact_email": USERID,
+    "solution_language": "python"  # Change to "golang" if using Go
+}
 
-    response = requests.post(API_URL, headers=headers, data=json.dumps(payload))
-    print("Status Code:", response.status_code)
-    print("Response:", response.text)
+def HOTP(K, C, digits=10):
+    """HOTP: Generates an HMAC-based OTP"""
+    K_bytes = K.encode()
+    C_bytes = struct.pack(">Q", C)
+    hmac_sha512 = hmac.new(K_bytes, C_bytes, hashlib.sha512).hexdigest()
+    return Truncate(hmac_sha512)[-digits:]
 
-if __name__ == "__main__":
-    send_request()
+def Truncate(hmac_sha512):
+    """Truncates HMAC-SHA-512 output to extract OTP"""
+    offset = int(hmac_sha512[-1], 16)
+    binary = int(hmac_sha512[(offset * 2):((offset * 2) + 8)], 16) & 0x7FFFFFFF
+    return str(binary)
+
+def TOTP(K, digits=10, timeref=0, timestep=30):
+    """TOTP: Time-based OTP variant of HOTP"""
+    C = int(time.time() - timeref) // timestep
+    return HOTP(K, C, digits=digits)
+
+# Generate 10-digit TOTP password
+passwd = TOTP(SHARED_SECRET, DIGITS, T0, TIMESTEP).zfill(10)
+
+# Encode authorization credentials
+auth_header = HTTPBasicAuth(USERID, passwd)
+
+# Send request
+headers = {"Content-Type": "application/json"}
+response = requests.post(ROOT, auth=auth_header, headers=headers, data=json.dumps(data))
+
+# Print server response
+print(response.status_code, response.text)
